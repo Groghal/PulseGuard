@@ -21,7 +21,9 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     - name: Build Release APK
-      run: ./gradlew assembleRelease
+      env:
+        GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+      run: ./gradlew assembleRelease --no-daemon --stacktrace
     - name: Find APK
       id: find_apk
       run: |
