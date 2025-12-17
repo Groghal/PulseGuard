@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -20,12 +21,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
+import androidx.wear.compose.material.Card
 import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.ScalingLazyColumn
+import androidx.wear.compose.material.items
 import androidx.wear.compose.material.Text
+import com.groghal.pulseguard.data.WorkoutHistoryItem
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun RepeatingButton(
@@ -131,13 +141,7 @@ fun WorkoutTypeSelector(
             .height(40.dp)
             .width(140.dp)
     ) {
-        val label = when (currentType) {
-            androidx.health.services.client.data.ExerciseType.RUNNING -> "Run"
-            androidx.health.services.client.data.ExerciseType.WALKING -> "Walk"
-            androidx.health.services.client.data.ExerciseType.BIKING -> "Bike"
-            androidx.health.services.client.data.ExerciseType.HIKING -> "Hike"
-            else -> "Workout"
-        }
+        val label = exerciseTypeLabel(currentType)
         Text(text = label, style = MaterialTheme.typography.button)
     }
 }
@@ -148,6 +152,7 @@ fun StartScreen(
     onThresholdChange: (Int) -> Unit,
     exerciseType: androidx.health.services.client.data.ExerciseType,
     onTypeChange: (androidx.health.services.client.data.ExerciseType) -> Unit,
+    onHistoryClick: () -> Unit,
     onStartClick: () -> Unit
 ) {
     Column(
@@ -169,6 +174,18 @@ fun StartScreen(
         
         Spacer(modifier = Modifier.height(16.dp))
         
+        Button(
+            onClick = onHistoryClick,
+            colors = ButtonDefaults.secondaryButtonColors(),
+            modifier = Modifier
+                .height(36.dp)
+                .width(140.dp)
+        ) {
+            Text("History")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Button(
             onClick = onStartClick,
             colors = ButtonDefaults.primaryButtonColors(
@@ -330,8 +347,160 @@ fun SummaryScreen(
     }
 }
 
+@Composable
+fun HistoryScreen(
+    items: List<WorkoutHistoryItem>,
+    sentIds: Set<Long>,
+    failedIds: Set<Long>,
+    onBackClick: () -> Unit,
+    onClearClick: () -> Unit,
+    onSyncAllClick: () -> Unit
+) {
+    ScalingLazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            Text(
+                text = "History",
+                style = MaterialTheme.typography.title2,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onSyncAllClick,
+                    colors = ButtonDefaults.secondaryButtonColors(),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("Sync all")
+                }
+            }
+        }
+
+        if (items.isEmpty()) {
+            item {
+                Text(
+                    text = "No workouts yet",
+                    style = MaterialTheme.typography.caption1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            items(items) { item ->
+                val status = when {
+                    failedIds.contains(item.endedAtEpochMillis) -> "!"   // failed
+                    sentIds.contains(item.endedAtEpochMillis) -> "✓"     // sent/queued successfully
+                    else -> "…"                                          // not sent yet
+                }
+                Text(
+                    text = "$status  ${historyRowText(item)}",
+                    style = MaterialTheme.typography.caption2,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        item {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onBackClick,
+                    colors = ButtonDefaults.secondaryButtonColors(),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("Back")
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = onClearClick,
+                    colors = ButtonDefaults.secondaryButtonColors(),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("Clear")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClearConfirmScreen(
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    // Modal popup dialog (prevents the "overlapping list" feel).
+    Dialog(onDismissRequest = onCancel) {
+        Card(
+            onClick = {},
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Clear all workouts?",
+                    style = MaterialTheme.typography.title3,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Deletes synced data too.",
+                    style = MaterialTheme.typography.caption2,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onCancel,
+                        colors = ButtonDefaults.secondaryButtonColors(),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onConfirm,
+                        colors = ButtonDefaults.primaryButtonColors(
+                            backgroundColor = MaterialTheme.colors.error
+                        ),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("Clear")
+                    }
+                }
+            }
+        }
+    }
+}
+
 fun formatDuration(seconds: Long): String {
     val mins = seconds / 60
     val secs = seconds % 60
     return String.format("%02d:%02d", mins, secs)
+}
+
+private val HISTORY_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MM-dd HH:mm")
+        .withZone(ZoneId.systemDefault())
+
+private fun historyRowText(item: WorkoutHistoryItem): String {
+    val at = HISTORY_TIME_FORMATTER.format(Instant.ofEpochMilli(item.endedAtEpochMillis))
+    return "${item.typeLabel} • ${formatDuration(item.durationSeconds)} • ${item.avgHeartRate.toInt()} • $at"
 }

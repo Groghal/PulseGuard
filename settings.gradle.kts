@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "PulseGuard"
 include(":app")
+include(":handheld")
  

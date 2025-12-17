@@ -12,7 +12,13 @@ import androidx.health.services.client.data.ExerciseUpdate
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.concurrent.futures.await
+import com.google.android.gms.wearable.PutDataMapRequest
+import com.google.android.gms.wearable.Wearable
+import java.util.concurrent.atomic.AtomicInteger
+import com.groghal.pulseguard.datalayer.DataLayerPaths
 import com.groghal.pulseguard.data.HrThresholdRepository
+import com.groghal.pulseguard.data.WorkoutHistoryItem
+import com.groghal.pulseguard.data.WorkoutHistoryRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,10 +53,17 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     private val healthServicesClient = HealthServices.getClient(application)
     private val exerciseClient = healthServicesClient.exerciseClient
     private val repository = HrThresholdRepository(application)
+    private val historyRepository = WorkoutHistoryRepository(application)
     private val alarmHelper = AlarmHelper(application)
+    private val dataClient = Wearable.getDataClient(application)
 
     private val _uiState = MutableStateFlow<WorkoutState>(WorkoutState.Idle(100, ExerciseType.WORKOUT))
     val uiState: StateFlow<WorkoutState> = _uiState.asStateFlow()
+
+    val workoutHistory = historyRepository.history
+    val sentWorkoutIds = historyRepository.sentIds
+    val failedWorkoutIds = historyRepository.failedIds
+    val lastSyncError = historyRepository.lastSyncError
 
     private var exerciseStartTime: Instant? = null
     private var timerJob: Job? = null
@@ -187,12 +200,129 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                 
                 val current = _uiState.value
                 if (current is WorkoutState.Active) {
+                    val endedAt = Instant.now().toEpochMilli()
+
+                    historyRepository.add(
+                        WorkoutHistoryItem(
+                            endedAtEpochMillis = endedAt,
+                            typeLabel = exerciseTypeLabel(current.exerciseType),
+                            durationSeconds = current.elapsedSeconds,
+                            avgHeartRate = current.avgHeartRate
+                        )
+                    )
+
+                    // Send to paired phone via Data Layer (handheld app listens and persists).
+                    val path = "${DataLayerPaths.WORKOUT_SUMMARY_PREFIX}$endedAt"
+                    val req = PutDataMapRequest.create(path).apply {
+                        dataMap.putLong("endedAtEpochMillis", endedAt)
+                        dataMap.putString("typeLabel", exerciseTypeLabel(current.exerciseType))
+                        dataMap.putLong("durationSeconds", current.elapsedSeconds)
+                        dataMap.putDouble("avgHeartRate", current.avgHeartRate)
+                    }.asPutDataRequest().setUrgent()
+
+                    dataClient.putDataItem(req)
+                        .addOnSuccessListener {
+                            Log.d("WorkoutApp", "Sent workout to handheld: $path")
+                            viewModelScope.launch { historyRepository.markSent(endedAt) }
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("WorkoutApp", "Failed sending workout to handheld", e)
+                            viewModelScope.launch { historyRepository.markFailed(endedAt, e.message ?: "Send failed") }
+                        }
+
                     _uiState.value = WorkoutState.Summary(current.elapsedSeconds, current.avgHeartRate)
                 }
             } catch (e: Exception) {
                 Log.e("WorkoutApp", "Error stopping workout", e)
             }
         }
+    }
+
+    fun syncAllWorkoutsToHandheld() {
+        viewModelScope.launch {
+            try {
+                val history = historyRepository.history.first()
+                val sent = historyRepository.sentIds.first()
+                // Try sending only the ones we haven't marked as sent yet.
+                for (item in history) {
+                    if (sent.contains(item.endedAtEpochMillis)) continue
+                    sendWorkoutToHandheld(item)
+                }
+            } catch (e: Exception) {
+                Log.e("WorkoutApp", "syncAllWorkoutsToHandheld failed", e)
+            }
+        }
+    }
+
+    private fun sendWorkoutToHandheld(item: WorkoutHistoryItem) {
+        val endedAt = item.endedAtEpochMillis
+        val path = "${DataLayerPaths.WORKOUT_SUMMARY_PREFIX}$endedAt"
+        val req = PutDataMapRequest.create(path).apply {
+            dataMap.putLong("endedAtEpochMillis", endedAt)
+            dataMap.putString("typeLabel", item.typeLabel)
+            dataMap.putLong("durationSeconds", item.durationSeconds)
+            dataMap.putDouble("avgHeartRate", item.avgHeartRate)
+        }.asPutDataRequest().setUrgent()
+
+        dataClient.putDataItem(req)
+            .addOnSuccessListener {
+                Log.d("WorkoutApp", "Sent workout to handheld (sync all): $path")
+                viewModelScope.launch { historyRepository.markSent(endedAt) }
+            }
+            .addOnFailureListener { e ->
+                Log.e("WorkoutApp", "Failed sending workout to handheld (sync all)", e)
+                viewModelScope.launch { historyRepository.markFailed(endedAt, e.message ?: "Send failed") }
+            }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch {
+            try {
+                historyRepository.clear()
+            } catch (e: Exception) {
+                Log.e("WorkoutApp", "Error clearing history", e)
+            }
+        }
+    }
+
+    fun clearHistoryEverywhere() {
+        // Delete Data Layer items first so they don't immediately repopulate after local clear.
+        dataClient.dataItems
+            .addOnSuccessListener { buffer ->
+                val toDelete = mutableListOf<android.net.Uri>()
+                try {
+                    buffer.forEach { item ->
+                        val path = item.uri.path ?: return@forEach
+                        if (path.startsWith(DataLayerPaths.WORKOUT_SUMMARY_PREFIX)) {
+                            toDelete.add(item.uri)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e("WorkoutApp", "Failed enumerating DataItems for clear", t)
+                } finally {
+                    buffer.release()
+                }
+
+                if (toDelete.isEmpty()) {
+                    viewModelScope.launch { historyRepository.clear() }
+                    return@addOnSuccessListener
+                }
+
+                val remaining = AtomicInteger(toDelete.size)
+                toDelete.forEach { uri ->
+                    dataClient.deleteDataItems(uri)
+                        .addOnCompleteListener {
+                            if (remaining.decrementAndGet() == 0) {
+                                viewModelScope.launch { historyRepository.clear() }
+                            }
+                        }
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e("WorkoutApp", "Failed querying DataItems for clear", e)
+                // Still clear local so UI responds.
+                viewModelScope.launch { historyRepository.clear() }
+            }
     }
 
     fun reset() {
