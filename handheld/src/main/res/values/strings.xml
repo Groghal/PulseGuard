@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">PulseGuard</string>
+    <string name="history_title">Workout history</string>
+    <string name="history_empty">No workouts received yet.</string>
+    <string name="clear">Clear</string>
+</resources>
+
+

@@ -5,16 +5,16 @@ plugins {
 }
 
 android {
-    namespace = "com.groghal.pulseguard"
+    namespace = "com.groghal.pulseguard.handheld"
     compileSdk = 36
 
     defaultConfig {
+        // Must match the Wear OS app's applicationId for Data Layer communication
         applicationId = "com.groghal.pulseguard"
-        minSdk = 30
+        minSdk = 26
         targetSdk = 35
-        versionCode = 9
+        versionCode = 7
         versionName = "1.0.0"
-
     }
 
     buildTypes {
@@ -26,6 +26,7 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -33,7 +34,7 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
-//    useLibrary("wear-sdk")
+
     buildFeatures {
         compose = true
     }
@@ -41,22 +42,21 @@ android {
 
 dependencies {
     implementation(libs.play.services.wearable)
+    implementation(libs.datastore.preferences)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.ui)
     implementation(libs.ui.graphics)
     implementation(libs.ui.tooling.preview)
-    implementation(libs.compose.material)
-    implementation(libs.compose.foundation)
-    implementation(libs.wear.tooling.preview)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.core.splashscreen)
-    androidTestImplementation(platform(libs.compose.bom))
-    androidTestImplementation(libs.ui.test.junit4)
+
+    implementation(libs.compose.material3)
+
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
-    implementation(libs.health.services.client)
-    implementation(libs.guava)
-    implementation(libs.concurrent.futures.ktx)
-    implementation(libs.datastore.preferences)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.ui.test.junit4)
 }
+
+

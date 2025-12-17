@@ -2,6 +2,30 @@
 
 PulseGuard is a Wear OS application designed to monitor heart rate during workouts and alert users when their heart rate exceeds a set threshold.
 
+## Google Play listing text
+
+**Short description (max ~80 chars)**
+
+Monitor your heart rate on Wear OS workouts and get threshold alerts.
+
+**Full description**
+
+PulseGuard helps you keep an eye on your heart rate during workouts on your Wear OS watch. Set a heart-rate threshold, start an activity, and PulseGuard will show your current heart rate and notify you when you go above your chosen limit.
+
+**Key features**
+
+- Real-time heart rate display during workouts
+- Custom threshold with quick +/- adjustment
+- Exercise types: Run, Walk, Bike, Hike, Workout
+- Alerts when your heart rate exceeds your threshold (visual + vibration)
+- Optional screen keep-on during workouts
+- Workout summary with duration and average heart rate
+- Simple interval helper: 40-second timer in Workout mode
+
+**Notes**
+
+- PulseGuard is designed for fitness and training awareness. It is **not a medical device** and is not intended for diagnosis or treatment.
+
 ## Features
 
 - **Heart Rate Monitoring**: Real-time heart rate tracking during workouts using Health Services
