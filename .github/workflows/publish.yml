@@ -1,0 +1,61 @@
+name: Publish Release APK
+
+on:
+  push:
+    tags: [ "*" ]
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    - name: Build Release APK
+      env:
+        GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
+      run: ./gradlew assembleRelease --no-daemon --stacktrace
+    - name: Find APK
+      id: find_apk
+      run: |
+        APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+        if [ -z "$APK_PATH" ]; then
+          echo "Error: APK file not found"
+          exit 1
+        fi
+        echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "Found APK: $APK_PATH"
+    - name: Get tag name
+      id: tag
+      run: |
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+        echo "Tag: $TAG_NAME"
+    - name: Create or update release and upload APK
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="${{ steps.tag.outputs.tag_name }}"
+        APK_PATH="${{ steps.find_apk.outputs.apk_path }}"
+        APK_NAME=$(basename "$APK_PATH")
+        
+        # Check if release exists
+        if gh release view "$TAG_NAME" > /dev/null 2>&1; then
+          echo "Release exists, uploading APK..."
+          gh release upload "$TAG_NAME" "$APK_PATH" --clobber
+        else
+          echo "Creating new release..."
+          gh release create "$TAG_NAME" "$APK_PATH" --title "Release $TAG_NAME" --generate-notes
+        fi
+
